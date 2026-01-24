@@ -1,4 +1,3 @@
-
 import numpy as np
 import wave
 import pyaudio
@@ -6,9 +5,18 @@ import time
 import threading
 
 global audio_buff, out_stream
-audio_buff = np.zeros(2000, dtype=np.float32)
+
+waterfall_duration = 2
+waterfall_dt = 0.0005
+waterfall_update_dt = 0.1
+sample_rate = 6000
+max_freq = 2000
+waterfall_df = 20
+fft_len = int(sample_rate / waterfall_df)
+nFreqs = int(max_freq / waterfall_df)
+
+audio_buff = np.zeros(fft_len, dtype=np.float32)
 out_stream = None
-sample_rate = 24000
 
 pya = pyaudio.PyAudio()
 
@@ -56,39 +64,30 @@ def _callback(in_data, frame_count, time_info, status_flags):
     return (None, pyaudio.paContinue)
 
 
-global spectrum, history
-spectrum = np.zeros(len(audio_buff)//2 + 1)
-history = np.zeros(200)
+global waterfall
+waterfall = np.zeros((int(waterfall_duration / waterfall_dt), nFreqs))
 def threaded_get_sigs():
-    global spectrum, history
+    global waterfall
     speclev = 1
     while(True):
-        time.sleep(0.01)
-        z = np.fft.rfft(audio_buff)
+        time.sleep(waterfall_dt)
+        z = np.fft.rfft(audio_buff)[:nFreqs]
         p = z.real*z.real + z.imag*z.imag
         speclev = np.max([speclev,np.max(p)])
         p /= speclev
-        p -= 1
-        spectrum = p* 10
-        lev = np.max(spectrum[95:105]) 
-        history[:-1] = history[1:]
-        history[-1] = lev
-
+        waterfall[:-1,:] = waterfall[1:,:] 
+        waterfall[-1,:] = np.clip(10*p, 0, 1)
 
 def time_plot():
     import matplotlib.pyplot as plt
-    fig, axs = plt.subplots(2)
-    specline, = axs[0].plot(spectrum)
-    axs[0].set_xlim(10,270)
-    axs[0].set_xticks(np.array([95,105])-0.5, labels=["",""])
-    axs[0].set_ylim(-10,0)
-    histline, = axs[1].plot(history)
-    axs[1].set_ylim(-10,0)
+    fig, axs = plt.subplots(figsize = (8,3))
+    waterfall_plot = axs.imshow(waterfall, extent = (0, waterfall.shape[1]*50, 0, waterfall.shape[0]))
 
+    #axs[0].set_xticks(np.array([95,105])-0.5, labels=["",""])
+    #axs[0].set_ylim(-10,0)
     while(True):
-        specline.set_ydata(spectrum)
-        histline.set_ydata(history)
-        plt.pause(0.3)
+        waterfall_plot.set_data(waterfall)
+        plt.pause(waterfall_update_dt)
 
     
 input_device_idx =  find_device(['Mic', 'CODEC'])
