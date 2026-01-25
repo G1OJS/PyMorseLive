@@ -47,6 +47,7 @@ def start_live(input_device_idx, output_device_idx):
                           output_device_index = output_device_idx)
     threading.Thread(target = threaded_output).start()
     threading.Thread(target = threaded_get_key).start()
+    threading.Thread(target = threaded_printer).start()
 
 def threaded_output():
     global audio_buff
@@ -63,11 +64,14 @@ def _callback(in_data, frame_count, time_info, status_flags):
     time.sleep(0)
     return (None, pyaudio.paContinue)
 
-global waterfall, key
+global waterfall, symbol_stream, key, to_print, dot
 waterfall = np.zeros((int(waterfall_duration / waterfall_dt), nFreqs))
+symbol_stream = " "
+key = None
+to_print = ""
 
 def threaded_get_key():
-    global waterfall, key
+    global waterfall, key, symbol_stream, to_print, dot
     speclev = 1
     
     def hysteresis(signal, lo=0.3, hi=0.6):
@@ -81,6 +85,13 @@ def threaded_get_key():
             out[i] = state
         return out
 
+    keychange = (0, 0, 0)
+    s = ""
+    to_print = ""
+    dot = 0.04
+    min_dot = 0.02
+    max_dot = 0.4
+    
     while(True):
         time.sleep(waterfall_dt)
         z = np.fft.rfft(audio_buff)[:nFreqs]
@@ -90,7 +101,31 @@ def threaded_get_key():
         waterfall[:-1,:] = waterfall[1:,:] 
         waterfall[-1,:] = np.clip(10*p, 0, 1)
         key = hysteresis(waterfall[:,int(waterfall.shape[1]/2)])
+ 
+        k = key[-1]
+        if(k != keychange[0] and time.time()-keychange[1] > 0.01):
+            t = time.time()
+            dt = t - keychange[1]
+            keychange = (k, t, dt)
+            if(not keychange[0]):
+               # with open('runs.csv','a') as f:
+               #     f.write(f"On {dt:5.3f}\n")
+                if(keychange[2] < dot*2):
+                    s = s + "."
+                    new_dot = dot * 0.95 + 0.05 * (keychange[2])
+                    if(max_dot> new_dot > min_dot):
+                        dot = new_dot
+                elif(keychange[2] > dot*2):
+                    s = s + "-"
+            else:
+               # with open('runs.csv','a') as f:
+               #     f.write(f"Off {dt:5.3f}\n")
+                if(keychange[2] > 1.2*dot): # prints on next transition to 'on'; needs an expiry timer
+                    to_print = s
+                    s = ""
 
+            
+            
 def time_plot():
     import matplotlib.pyplot as plt
     fig, axs = plt.subplots(2,1, figsize = (8,3))
@@ -104,6 +139,13 @@ def time_plot():
 
         time.sleep(0.001)
 
+def threaded_printer():
+    global to_print
+    while(True):
+        time.sleep(0.05)
+        if(len(to_print)):
+            print(f"/{to_print}", end ='', flush = True)
+            to_print = ""
     
 input_device_idx =  find_device(['Mic', 'CODEC'])
 output_device_idx =  find_device(['Spea', 'High'])
