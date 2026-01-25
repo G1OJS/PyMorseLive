@@ -143,7 +143,7 @@ def threaded_printer():
     while(True):
         time.sleep(0.05)
         if(len(to_print)):
-            wpm = 20 * dot / 0.06
+            wpm = 60 / (50 * dot)
             print(f"{wpm:5.0f} {to_print}")
             to_print = ""
     
