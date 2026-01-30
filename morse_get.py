@@ -166,7 +166,7 @@ audio_in()
 
 symbols = ""
 dot = 0.4
-min_dot = 0.04
+min_dot = 0.03
 max_dot = 0.4
 
 run()
