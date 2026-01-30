@@ -197,21 +197,15 @@ class MorseDecoder:
     def decode(self, symbols):
         return self.MORSE.get(symbols, "?")
 
-def run():
-    audio = AudioFrontEnd()
-    spec_q, wf_df = audio.get_queue()
 
-    tone_freq = 600
-    bin_idx = int(tone_freq / wf_df)
-    channelizer = CWChannelizer(spec_q, wf_df, bin_idx)
-    
+
+
+def init_GUI():
     import matplotlib.pyplot as plt
-
     plt.ion()
     fig, (ax_wf, ax_key) = plt.subplots(2,1, figsize=(8,6))
-    img = ax_wf.imshow(audio.get_waterfall().T, aspect='auto', origin='lower',
+    wf_img = ax_wf.imshow([[0,0]], aspect='auto', origin='lower',
                     extent=[0, 1000, 0, 1000])
-    ax_wf.axhline(channelizer.channel.bin_idx * wf_df, color='r')
     wpm_text = ax_wf.text(0.02, 0.95, "", transform=ax_wf.transAxes, color="white")
 
     line_env, = ax_key.plot([], label="env")
@@ -219,29 +213,38 @@ def run():
     line_key, = ax_key.plot([], label="key")
     ax_key.set_ylim(0,1.2)
     ax_key.legend()
+    return plt, fig, ax_wf, ax_key, wf_img, wpm_text, line_env, line_noise, line_key
 
 
+def show_key(ax_key, env, noise, key_hist, line_env, line_noise, line_key):
+    line_env.set_ydata(env)
+    line_env.set_xdata(range(len(env)))
+    line_noise.set_ydata(noise)
+    line_noise.set_xdata(range(len(noise)))
+    line_key.set_ydata(key_hist)
+    line_key.set_xdata(range(len(key_hist)))
+    ax_key.set_xlim(0, len(env))
+
+def run():
+    debug = False
+    audio = AudioFrontEnd()
+    spec_q, wf_df = audio.get_queue()
+
+    tone_freq = 600
+    bin_idx = int(tone_freq / wf_df)
+    channelizer = CWChannelizer(spec_q, wf_df, bin_idx)
+
+    plt, fig, ax_wf, ax_key, wf_img, wpm_text, line_env, line_noise, line_key = init_GUI()
+    ax_wf.axhline(channelizer.channel.bin_idx * wf_df, color='r')
     while True:
         wf = audio.get_waterfall().T
-        img.set_data(wf)
-        img.set_clim(0, np.max(wf) + 1e-6)
+        wf_img.set_data(wf)
+        wf_img.set_clim(0, np.max(wf) + 1e-6)
         wpm_text.set_text(f"{channelizer.channel.get_wpm():.1f} WPM")
         env, noise, key_hist = channelizer.channel.get_debug()
-
-        line_env.set_ydata(env)
-        line_env.set_xdata(range(len(env)))
-
-        line_noise.set_ydata(noise)
-        line_noise.set_xdata(range(len(noise)))
-
-        line_key.set_ydata(key_hist)
-        line_key.set_xdata(range(len(key_hist)))
-
-        ax_key.set_xlim(0, len(env))
-
-
-
+        show_key(ax_key, env, noise, key_hist, line_env, line_noise, line_key)
         plt.pause(0.05)
+
 
 
 

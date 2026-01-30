@@ -14,7 +14,7 @@ class AudioFrontEnd:
         global waterfall
         waterfall = {'dur':1, 'dt':0.0005, 'df':50, 'fMax':1000, 'nf':0, 'waterfall': None}
         waterfall.update({'nF': int(waterfall['fMax'] / waterfall['df'])})
-        waterfall.update({'waterfall': np.zeros((int(waterfall['dur'] / waterfall['dt']), waterfall['nF']))})             
+        waterfall.update({'waterfall': np.zeros((waterfall['nF'], int(waterfall['dur'] / waterfall['dt'])))})             
         self.pya = pyaudio.PyAudio()
         self.input_device_idx = self.find_device(device_keywords)
         self.sample_rate = 8000
@@ -58,14 +58,14 @@ class AudioFrontEnd:
             p = (z.real*z.real + z.imag*z.imag)
             self.speclev = max(self.speclev, np.max(p))
             p /= self.speclev
-            waterfall['waterfall'][:-1] = waterfall['waterfall'][1:]
-            waterfall['waterfall'][-1] = np.clip(10*p,0,1)
+            waterfall['waterfall'][:, :-1] = waterfall['waterfall'][:, 1:]
+            waterfall['waterfall'][:, -1] = np.clip(10*p,0,1)
            
 class TimingDecoder:
 
     def __init__(self):
         global key
-        key = np.zeros(waterfall['waterfall'].shape[0])
+        key = np.zeros(waterfall['waterfall'].shape[1])
         self.dot = 0.1
         self.max_dot = 0.15
         self.min_dot = 0.03
@@ -95,7 +95,7 @@ class TimingDecoder:
         
         while(True):
             time.sleep(0.001)
-            key = hysteresis(waterfall['waterfall'][:,int(waterfall['waterfall'].shape[1]/2)])
+            key = hysteresis(waterfall['waterfall'][int(waterfall['waterfall'].shape[0]/2), :])
 
             key_is_down = key[-1]
             if(not key_is_down and t_key_down):
@@ -103,7 +103,7 @@ class TimingDecoder:
                 down_duration = t_key_up - t_key_down
                 t_key_down = False
                 down_durations.append(down_duration)
-                down_durations = down_durations[-20:]
+                down_durations = down_durations[-8:]
                 self.dot = np.clip(np.percentile(down_durations, 20), self.min_dot, self.max_dot)
                 if(down_duration < self.dot * 2):
                     s = s + "."
@@ -153,7 +153,7 @@ def run():
     global waterfall, key, wpm, ticker
     fig, axs = plt.subplots(2,1, figsize = (8,3))
     audio = AudioFrontEnd()
-    waterfall_plot = axs[0].imshow(waterfall['waterfall'], extent = (0, waterfall['waterfall'].shape[1]*50, 0, waterfall['waterfall'].shape[0]))
+    waterfall_plot = axs[0].imshow(waterfall['waterfall'], extent = (0, 5000, 0, 2000))
     
     decoder = TimingDecoder()
     key_plot, = axs[1].plot(key)
