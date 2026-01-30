@@ -1,3 +1,4 @@
+
 import numpy as np
 import wave
 import pyaudio
@@ -146,19 +147,20 @@ class TimingDecoder:
             if(time.time() - last_symbols > 14*self.dot and len(ticker_text)):
                 if(ticker_text[-1] != " "):
                     ticker_text.append(" ")
-                    ticker.set_text(ticker_text)
+                    ticker.set_text(''.join(ticker_text))
 
 def run():
     global waterfall, key, wpm, ticker
-    audio = AudioFrontEnd()
-    decoder = TimingDecoder()
-    
     fig, axs = plt.subplots(2,1, figsize = (8,3))
+    audio = AudioFrontEnd()
     waterfall_plot = axs[0].imshow(waterfall['waterfall'], extent = (0, waterfall['waterfall'].shape[1]*50, 0, waterfall['waterfall'].shape[0]))
+    
+    decoder = TimingDecoder()
     key_plot, = axs[1].plot(key)
     axs[1].set_ylim(0,2)
     wpm = fig.text(0.1,0.6,"WPM")
     ticker = fig.text(0.1,0.8,"TEXT")
+
 
     while True:
         time.sleep(0.01)
@@ -168,7 +170,3 @@ def run():
         plt.pause(0.1)
 
 run()
-
-
-
-
