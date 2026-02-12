@@ -12,14 +12,17 @@ class AudioFrontEnd:
     
     def __init__(self, device_keywords = ['Mic', 'CODEC']):
         global waterfall
-        waterfall = {'dur':4, 'dt':0.02, 'df':0, 'fMax':800, 'nf':0, 'waterfall': None, 'idx':0, 'tlast':0}
+        waterfall = {'dur':4, 'dt':0.02, 'df':0, 'fRng':[200,1000], 'binRng':[0,0], 'waterfall': None, 'idx':0, 'tlast':0}
         waterfall.update({'df': 1 / waterfall['dt']})
         self.sample_rate = 16000
         self.fft_len = int(self.sample_rate * waterfall['dt'])
         self.audio_buff = np.zeros(self.fft_len, dtype=np.float32)
-        waterfall.update({'nF': int(waterfall['fMax'] / waterfall['df'])})
+        df = waterfall['df']
+        fRng = waterfall['fRng']
+        binRng = [int(fRng[0]/df), int(fRng[1]/df)]
+        waterfall.update({'binRng': binRng})
         
-        waterfall.update({'waterfall': np.zeros((waterfall['nF'], int(waterfall['dur'] / waterfall['dt'])))})             
+        waterfall.update({'waterfall': np.zeros((1+binRng[1]-binRng[0], int(waterfall['dur'] / waterfall['dt'])))})             
         self.pya = pyaudio.PyAudio()
         self.input_device_idx = self.find_device(device_keywords)
         self.speclev = 1
@@ -55,7 +58,7 @@ class AudioFrontEnd:
         return (None, pyaudio.paContinue)
 
     def calc_spectrum(self):
-        z = np.fft.rfft(self.audio_buff)[:waterfall['nF']]
+        z = np.fft.rfft(self.audio_buff)[waterfall['binRng'][0]:waterfall['binRng'][1]+1]
         p = (z.real*z.real + z.imag*z.imag)
         self.speclev = max(self.speclev, np.max(p))
         p /= self.speclev
