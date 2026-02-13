@@ -1,5 +1,10 @@
-
-
+MAX_WPM = 35
+MIN_WPM = 12
+DOT_TOL_FACTS = (0.8, 1.2)
+DASH_TOL_FACTS = (0.8, 1.6)
+CHARSEP_THRESHOLD = 0.7
+WORDSEP_THRESHOLD = 0.7
+        
 class TimingDecoder:
 
     def __init__(self, ax, spec):
@@ -9,9 +14,7 @@ class TimingDecoder:
         self.key_is_down = False
         self.n_fbins = spec['pgrid'].shape[0]
         self.fbin = 0
-        self.wpm = 16
-        tu = 1.2 / self.wpm
-        self.speed_elements = {'dot':1*tu, 'dash':3*tu, 'intra':1*tu, 'inter':3*tu, 'word':7*tu}
+        self.check_speed(1.2/16)
         self.ticker = False
         self.set_fbin(10)
         self.symbols = ""
@@ -27,57 +30,67 @@ class TimingDecoder:
         self.ticker = self.ax.text(0, (0.5 + self.fbin) / self.n_fbins,'')
         self.ticker_text = []
 
-    def follow_speed(self, dur, speed_element):
+    def check_element(self, dur):
         import numpy as np
-        alpha = 0.3
         se = self.speed_elements
-        se[speed_element] = alpha * dur + (1-alpha) * se[speed_element]
-        tu_new = np.mean([se['dot'], se['dash']/3.0, se['intra'], se['inter']/3.0])
-        self.wpm = 1.2/tu_new
+        if DOT_TOL_FACTS[0]*se['dot'] < dur < DOT_TOL_FACTS[1]*se['dot']:
+            return '.'
+        if DASH_TOL_FACTS[0]*se['dash'] < dur < DASH_TOL_FACTS[1]*se['dash']:
+            return '-'
+        return ''
 
-    def check_element(self, down_dur, unit):
-        timing_tolerance = 0.5
-        se = self.speed_elements
-        t = se[unit]
-        return ((1-timing_tolerance)*t < down_dur < (1+timing_tolerance)*t)
-
+    def check_speed(self, dd):
+        if(dd < 1.2/MAX_WPM or dd > 3*1.2/MIN_WPM):
+            return
+        if(dd < 1.2/MIN_WPM):
+            self.wpm = 1.2/dd
+        else:
+            self.wpm = 3*1.2/dd
+        if(self.wpm > MAX_WPM): self.wpm = MAX_WPM
+        if(self.wpm < MIN_WPM): self.wpm = MIN_WPM
+        tu = 1.2/self.wpm
+        self.speed_elements = {'dot':1*tu, 'dash':3*tu, 'charsep':3*tu, 'wordsep':7*tu}
+            
     def get_symbols(self):
         import time
-        
         t_key_down = False
-        t_key_up = time.time()
+        self.t_key_up = time.time()
         s = ""
-        speclev = 1
         
         while(True):
             time.sleep(0.002)
-            
+
+            # hysteresis
             level = self.spec['pgrid'][self.fbin, self.spec['idx']]
             if not self.key_is_down and level > 0.6:
                 self.key_is_down = True
             elif self.key_is_down and level < 0.3:
                 self.key_is_down = False
 
-            if(not self.key_is_down and t_key_down):
-                t_key_up = time.time()
-                down_duration = t_key_up - t_key_down
+            # key_down to key_up transition
+            if t_key_down and not self.key_is_down:
+                self.t_key_up = time.time()
+                down_duration = self.t_key_up - t_key_down
                 t_key_down = False
-                if(self.check_element(down_duration, 'dot')):
-                    s = s + "."
-                    self.follow_speed(down_duration, 'dot')
-                elif(self.check_element(down_duration, 'dash')):
-                    s = s + "-"
-                    self.follow_speed(down_duration, 'dash')
+                self.check_speed(down_duration)
+                s = s + self.check_element(down_duration)
 
-                 
-                    
-            if(t_key_up):
-                if(time.time() - t_key_up > 1.5*1.2/self.wpm and len(s)):
-                    self.symbols = s
-                    s = ""
-            if(self.key_is_down and t_key_up):
+            # watch key_up duration for inter-character and inter-word gaps
+            if self.t_key_up:
+                key_up_dur = time.time() - self.t_key_up
+                if key_up_dur > CHARSEP_THRESHOLD * self.speed_elements['charsep']:
+                    if(len(s)):
+                        self.symbols = s
+                        s = ""
+                if key_up_dur > WORDSEP_THRESHOLD * self.speed_elements['wordsep']:
+                    if(len(self.ticker_text)):
+                        if(self.ticker_text[-1] != " "):
+                            self.ticker_text.append(" ")
+
+            # key_up to key_down transition
+            if(self.t_key_up and self.key_is_down):
                 t_key_down = time.time()
-                t_key_up = False
+                self.t_key_up = False
 
     def decoder(self):
         import time
@@ -96,20 +109,22 @@ class TimingDecoder:
         "---..": "8", "----.": "9"
         }
 
-        last_symbols = time.time()
         while(True):
-            time.sleep(0.1)
-            if(len(self.symbols)):
-                last_symbols = time.time()
-                self.ticker_text.append(MORSE.get(self.symbols, "?"))
-                self.ticker_text = self.ticker_text[-20:]
+            time.sleep(0.2)
+            
+            # decode and print single character
+            if len(self.symbols):
+                ch = MORSE.get(self.symbols, "_")
                 self.symbols = ""
-            self.ticker.set_text(f"{self.wpm:4.1f} {''.join(self.ticker_text)}")
-            if(time.time() - last_symbols > 14*1.2/self.wpm and len(self.ticker_text)):
-                if(self.ticker_text[-1] != " "):
-                    self.ticker_text.append(" ")
-
-        
+                prevchars = ''.join(self.ticker_text).replace(' ','')[-2:]
+                skip = False
+                skip = skip or (prevchars == "EE" and ch == "E" or ch == "T")
+                skip = skip or (prevchars == "TT" and ch == "T")
+                if(not skip):
+                    self.ticker_text.append(ch)
+                    self.ticker_text = self.ticker_text[-20:]
+                    self.ticker.set_text(f"{self.wpm:4.1f} {''.join(self.ticker_text)}")
+            
 def run():
     import matplotlib.pyplot as plt
     from audio import Audio_in
@@ -117,14 +132,13 @@ def run():
     import numpy as np
         
     fig, axs = plt.subplots(1,2, figsize = (8,8))
-    audio = Audio_in(fRng = [400, 600])
+    audio = Audio_in(dur = 2, df = 50, dt = 0.01, fRng = [300, 900])
     spec = audio.specbuff
     spec_plot = axs[0].imshow(spec['pgrid'], origin = 'lower', aspect='auto', interpolation = 'none')
     axs[0].set_xticks([])
     axs[0].set_yticks([])
     axs[1].set_axis_off()
 
-    #currently working quite well but laggy
     decoders = []
     for i in range(spec['pgrid'].shape[0]):
         d = TimingDecoder(axs[1], spec)
@@ -138,6 +152,6 @@ def run():
         display = np.hstack((wf[:, idx:], wf[:, :idx]))
         spec_plot.set_data(display)
         spec_plot.autoscale()
-        plt.pause(0.1)
+        plt.pause(0.03)
 
 run()
