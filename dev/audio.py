@@ -23,7 +23,7 @@ class Audio_in:
         binRng = [int(fRng[0]/df), int(fRng[1]/df) - 1]
         fRng = [binRng[0] * df, binRng[1] * df]
         self.params = {'dur':dur, 'dt':dt, 'dt_wpm': int(12/dt)/10, 'hpf': hops_per_fft, 'df':df, 'sr':sample_rate, 'fmax':fmax, 'fRng':fRng, 'binRng': binRng}
-        self.specbuff = {'pgrid': np.zeros((1+binRng[1]-binRng[0], int(self.params['dur'] / self.params['dt']))), 'idx':0}
+        self.specbuff = {'pgrid': np.zeros((1+binRng[1]-binRng[0], int(self.params['dur'] / self.params['dt']))), 'idx':0, 'dt':self.params['dt']}
 
         
         self.pya = pyaudio.PyAudio()

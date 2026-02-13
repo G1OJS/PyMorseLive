@@ -1,7 +1,7 @@
 MAX_WPM = 35
 MIN_WPM = 12
-DOT_TOL_FACTS = (0.8, 1.2)
-DASH_TOL_FACTS = (0.8, 1.6)
+DOT_TOL_FACTS = (0.8, 2)
+DASH_TOL_FACTS = (0.5, 1.2)
 CHARSEP_THRESHOLD = 0.7
 WORDSEP_THRESHOLD = 0.7
         
@@ -14,7 +14,9 @@ class TimingDecoder:
         self.key_is_down = False
         self.n_fbins = spec['pgrid'].shape[0]
         self.fbin = 0
-        self.check_speed(1.2/16)
+        self.wpm = 16
+        self.keydown_history = {'buffer':[1.2/self.wpm]*10, 'idx':0}
+        self.check_speed(1.2/self.wpm)
         self.ticker = False
         self.set_fbin(10)
         self.symbols = ""
@@ -39,15 +41,28 @@ class TimingDecoder:
             return '-'
         return ''
 
+    def _check_speed(self, dd):
+        import numpy as np
+        buffer = self.keydown_history['buffer']
+        idx = (self.keydown_history['idx'] + 1) % len(buffer)
+        self.keydown_history['idx'] = idx
+        buffer[idx] = dd
+        dot = np.percentile(buffer,20)
+        self.wpm = 1.2/dot
+        tu = 1.2/self.wpm
+        self.speed_elements = {'dot':1*tu, 'dash':3*tu, 'charsep':3*tu, 'wordsep':7*tu}
+
     def check_speed(self, dd):
+        alpha = 0.3
         if(dd < 1.2/MAX_WPM or dd > 3*1.2/MIN_WPM):
             return
         if(dd < 1.2/MIN_WPM):
-            self.wpm = 1.2/dd
+            wpm = 1.2/dd
         else:
-            self.wpm = 3*1.2/dd
-        if(self.wpm > MAX_WPM): self.wpm = MAX_WPM
-        if(self.wpm < MIN_WPM): self.wpm = MIN_WPM
+            wpm = 3*1.2/dd
+        if(wpm > MAX_WPM): wpm = MAX_WPM
+        if(wpm < MIN_WPM): wpm = MIN_WPM
+        self.wpm = alpha * wpm + (1-alpha) * self.wpm
         tu = 1.2/self.wpm
         self.speed_elements = {'dot':1*tu, 'dash':3*tu, 'charsep':3*tu, 'wordsep':7*tu}
             
@@ -132,7 +147,7 @@ def run():
     import numpy as np
         
     fig, axs = plt.subplots(1,2, figsize = (8,8))
-    audio = Audio_in(dur = 2, df = 50, dt = 0.01, fRng = [300, 900])
+    audio = Audio_in(dur = 2, df = 50, dt = 0.01, fRng = [400, 700])
     spec = audio.specbuff
     spec_plot = axs[0].imshow(spec['pgrid'], origin = 'lower', aspect='auto', interpolation = 'none')
     axs[0].set_xticks([])
