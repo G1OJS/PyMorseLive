@@ -153,7 +153,7 @@ def run():
     global waterfall, key, wpm, ticker
     fig, axs = plt.subplots(2,1, figsize = (8,3))
     audio = AudioFrontEnd()
-    waterfall_plot = axs[0].imshow(waterfall['waterfall'], extent = (0, 5000, 0, 2000))
+    waterfall_plot = axs[0].imshow(waterfall['waterfall'], extent = (0, 5000, 0, 2000), origin = 'lower')
     
     decoder = TimingDecoder()
     key_plot, = axs[1].plot(key)
