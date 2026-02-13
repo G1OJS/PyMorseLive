@@ -1,10 +1,6 @@
-
 import numpy as np
-import wave
 import pyaudio
 import time
-import threading
-import matplotlib.pyplot as plt
 
 CABLE = ['CABLE', 'Out']
 RIG = ['Min', 'CODEC']
@@ -25,7 +21,7 @@ class Audio_in:
 
         binRng = [int(fRng[0]/df), int(fRng[1]/df)]
         fRng = [binRng[0] * df, binRng[1] * df]
-        self.params = {'dur':dur, 'dt':dt, 'dt_wpm': 1.2/dt, 'hpf': hops_per_fft, 'df':df, 'sr':sample_rate, 'fmax':fmax, 'fRng':fRng, 'binRng': binRng}
+        self.params = {'dur':dur, 'dt':dt, 'dt_wpm': int(12/dt)/10, 'hpf': hops_per_fft, 'df':df, 'sr':sample_rate, 'fmax':fmax, 'fRng':fRng, 'binRng': binRng}
         self.specbuff = {'pgrid': np.zeros((1+binRng[1]-binRng[0], int(self.params['dur'] / self.params['dt']))), 'idx':0}
 
         
@@ -77,7 +73,8 @@ class Audio_in:
 # testing code
 if __name__ == "__main__":
 
-    def run():
+    def test():
+        import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1,2, figsize = (8,8))
         audio = Audio_in()
         print(audio.specbuff['pgrid'].shape)
@@ -95,4 +92,4 @@ if __name__ == "__main__":
             spec_plot.autoscale()
             plt.pause(0.1)
 
-    run()
+    test()
