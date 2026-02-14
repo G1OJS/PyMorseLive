@@ -28,7 +28,7 @@ class Audio_in:
         self.pgrid = np.ones((nf, nt))
         self.ratio = np.zeros((nf, nt))
         self.grid_idx = 0
-        self.specbuff = {'buff':self.ratio, 'shape': {'nf':nf, 'nt':nt}, 'dt':self.params['dt']}
+        self.specbuff = {'buff':self.ratio, 'nf':nf, 'nt':nt, 'dt':self.params['dt']}
         self.pya = pyaudio.PyAudio()
         self.input_device_idx = self.find_device(device_keywords)
         self.window = np.hanning(fft_len)

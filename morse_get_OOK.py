@@ -9,9 +9,9 @@ import numpy as np
         
 class TimingDecoder:
 
-    def __init__(self, ax, spec):
+    def __init__(self, axs, spec):
         import threading
-        self.ax = ax
+        self.text_ax = axs[1]
         self.spec = spec
         self.key_is_down = False
         self.n_fbins = spec['buff'].shape[0]
@@ -31,7 +31,7 @@ class TimingDecoder:
         if(self.ticker):
             self.ticker.set_text(" " * 20)
         self.fbin = fbin
-        self.ticker = self.ax.text(0, (0.5 + self.fbin) / self.n_fbins,'')
+        self.ticker = self.text_ax.text(0, (0.5 + self.fbin) / self.n_fbins,'')
         self.ticker_text = []
 
     def check_element(self, dur):
@@ -164,7 +164,7 @@ def run():
 
     decoders = []
     for i in range(spec['buff'].shape[0]):
-        d = TimingDecoder(axs[1], spec)
+        d = TimingDecoder(axs, spec)
         d.set_fbin(i)
         decoders.append(d)
 
