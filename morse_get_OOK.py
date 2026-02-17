@@ -47,9 +47,6 @@ class TimingDecoder:
         self.last_lift_t = 0
         self.ticker_dict = {'wpm':16, 'morse':' ' * TICKER_FIELD_LENGTHS['MORSE'], 'text':' ' * TICKER_FIELD_LENGTHS['TEXT'], 'rendered_text':''}
         self.update_speed(1.2/16)
-        self.noise = 0
-        self.decaying_min = 0
-        self.decaying_max = 1
 
     def update_speed(self, mark_dur):
         if(1.2/SPEED['MAX'] < mark_dur < 3*1.2/SPEED['MIN']):
@@ -105,13 +102,9 @@ class TimingDecoder:
         else:
             self.morse_elements = self.morse_elements + el
                 
-    def step(self, pwr_all):
+    def step(self, sigs):
         if(self.fbin>-1):
-            pwr = pwr_all[self.fbin]
-           # self.decaying_min = max(self.noise, 0.95*self.decaying_min)
-            self.decaying_max = max(pwr, 0.95*self.decaying_max)
-            sig = pwr / self.decaying_max
-            self.noise = min(self.noise, pwr)
+            sig = sigs[self.fbin]
             mark_dur, space_dur, is_idle = self.detect_transition(sig)
             if any([mark_dur, space_dur, is_idle]):
                 el = self.classify_duration(mark_dur, space_dur, is_idle)
@@ -142,10 +135,12 @@ class UI_decoder:
 
 class Audio_processor:
     def __init__(self, audio):
+        self.audio = audio
         nf = audio.params['nf']
         self.dt = audio.params['dt']
-        self.noise = np.zeros(nf)
+        self.noise = np.ones(nf)
         self.noise_decaying = np.zeros(nf)
+        self.decaying_max = np.ones(nf)
         self.sig = np.zeros(nf)
         threading.Thread(target = self.run).start()
 
@@ -154,14 +149,15 @@ class Audio_processor:
             time.sleep(self.dt)
             self.noise = np.minimum(self.noise, self.audio.pwr)
             self.noise_decaying = np.maximum(self.noise_decaying*0.99, self.noise)
-            self.sig = self.audio.pwr / self.sig
+            self.sig = self.audio.pwr / self.noise_decaying
             self.decaying_max = np.maximum(self.decaying_max*0.99, self.sig)
             self.sig /= self.decaying_max
 
 class App:
     def __init__(self):
         self.audio = Audio_in(df = 80, dt = 0.02,  fRng = [200, 1500])
-        self.siglevels = np.zeros(self.audio.params['nf'])
+        self.dsp = Audio_processor(self.audio)
+        self.siglevels_slow_smoothed = np.zeros(self.audio.params['nf'])
         self.display_nt = int(DISPLAY_DUR / DISPLAY_DT)
         self.timevals = np.linspace(0, DISPLAY_DUR, self.display_nt)
         self.animate(DISPLAY_DT*1000, DISPLAY_DUR)
@@ -180,9 +176,9 @@ class App:
         def refresh(i):
             nonlocal waterfall, spec_plot, axs
             if(i % 100 == 0):
-                self.siglevels = np.maximum(self.siglevels * 0.999, self.audio.pwr)
-                decoders_sorted = sorted(self.decoders, key=lambda d: self.siglevels[d.fbin])
-                fbins_to_decode = np.argsort(-self.siglevels)[:NDECODERS]
+                self.siglevels_slow_smoothed = np.maximum(self.siglevels_slow_smoothed * 0.999, self.dsp.sig)
+                decoders_sorted = sorted(self.decoders, key=lambda d: self.siglevels_slow_smoothed[d.fbin])
+                fbins_to_decode = np.argsort(-self.siglevels_slow_smoothed)[:NDECODERS]
                 current_bins_with_decoders = [d.fbin for d in self.decoders]
                 for fb in fbins_to_decode:
                     if fb not in current_bins_with_decoders:
@@ -191,10 +187,10 @@ class App:
                         break
                 
             for decoder in self.decoders:
-                decoder.decoder.step(self.audio.pwr)
+                decoder.decoder.step(self.dsp.sig)
 
             waterfall = np.roll(waterfall, -1, axis =1)
-            waterfall[:, -1]  = self.audio.pwr/(1+np.max(self.audio.pwr))
+            waterfall[:, -1]  = self.dsp.sig
             spec_plot.set_array(waterfall)
             spec_plot.autoscale()
             
