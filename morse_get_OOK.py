@@ -5,13 +5,16 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from audio import Audio_in
 
+F_RANGE = [200, 1500]
 NDECODERS = 3
 SHOW_KEYLINES = True
 SPEED = {'MAX':45, 'MIN':12, 'ALPHA':0.1}
 TICKER_FIELD_LENGTHS = {'MORSE':30, 'TEXT':30}
 TIMESPEC = {'DOT_SHORT':0.65, 'DOT_LONG':2, 'CHARSEP_SHORT':1.5, 'CHARSEP_LONG':4, 'WORDSEP':6.5}
-DISPLAY_DT = 0.01
-DISPLAY_DUR = 2
+AUDIO_DT = 0.02
+AUDIO_RES= 80
+DISPLAY_DT = -1
+DISPLAY_DUR = 1
 MORSE = {
 ".-": "A",    "-...": "B",  "-.-.": "C",  "-..": "D",
 ".": "E",     "..-.": "F",  "--.": "G",   "....": "H",
@@ -141,6 +144,7 @@ class Audio_processor:
         self.noise = np.ones(nf)
         self.noise_decaying = np.zeros(nf)
         self.decaying_max = np.ones(nf)
+        self.s_meter = np.zeros(nf)
         self.sig = np.zeros(nf)
         threading.Thread(target = self.run).start()
 
@@ -148,21 +152,22 @@ class Audio_processor:
         while True:
             time.sleep(self.dt)
             self.noise = np.minimum(self.noise, self.audio.pwr)
-            self.noise_decaying = np.maximum(self.noise_decaying*0.99, self.noise)
-            self.sig = self.audio.pwr / self.noise_decaying
-            self.decaying_max = np.maximum(self.decaying_max*0.99, self.sig)
-            self.sig /= self.decaying_max
+            self.noise_decaying = np.maximum(self.noise_decaying*0.95, self.noise)
+            sig_unnorm = self.audio.pwr / self.noise_decaying
+            self.s_meter = np.maximum(self.s_meter * 0.9, sig_unnorm)
+            self.decaying_max = np.maximum(self.decaying_max*0.95, sig_unnorm)
+            self.sig = sig_unnorm / self.decaying_max
 
 class App:
     def __init__(self):
-        self.audio = Audio_in(df = 80, dt = 0.02,  fRng = [200, 1500])
+        self.audio = Audio_in(df = AUDIO_RES, dt = AUDIO_DT,  fRng = F_RANGE)
+        self.display_dt = DISPLAY_DT if DISPLAY_DT > 0 else self.audio.params['dt']
         self.dsp = Audio_processor(self.audio)
-        self.siglevels_slow_smoothed = np.zeros(self.audio.params['nf'])
-        self.display_nt = int(DISPLAY_DUR / DISPLAY_DT)
+        self.display_nt = int(DISPLAY_DUR / self.display_dt)
         self.timevals = np.linspace(0, DISPLAY_DUR, self.display_nt)
-        self.animate(DISPLAY_DT*1000, DISPLAY_DUR)
+        self.animate()
 
-    def animate(self, frame_ms, display_duration):
+    def animate(self):
         fig, axs = plt.subplots(1,2, figsize = (14,2))
         axs[1].set_ylim(0, self.audio.params['nf'])
         axs[0].set_xticks([])
@@ -172,21 +177,21 @@ class App:
         
         waterfall = np.zeros((self.audio.params['nf'], self.display_nt))
         spec_plot = axs[0].imshow(waterfall, origin = 'lower', aspect='auto', alpha = 1, 
-                                      interpolation = 'none', extent=[0, display_duration, 0, self.audio.params['nf']])
+                                      interpolation = 'none', extent=[0, DISPLAY_DUR, 0, self.audio.params['nf']])
         def refresh(i):
             nonlocal waterfall, spec_plot, axs
             if(i % 100 == 0):
-                self.siglevels_slow_smoothed = np.maximum(self.siglevels_slow_smoothed * 0.999, self.dsp.sig)
-                decoders_sorted = sorted(self.decoders, key=lambda d: self.siglevels_slow_smoothed[d.fbin])
-                fbins_to_decode = np.argsort(-self.siglevels_slow_smoothed)[:NDECODERS]
+                fbins_to_decode = np.argsort(-self.dsp.s_meter)[:NDECODERS]
+                decoders_sorted = sorted(self.decoders, key=lambda d: self.dsp.s_meter[d.fbin])
                 current_bins_with_decoders = [d.fbin for d in self.decoders]
                 for fb in fbins_to_decode:
                     if fb not in current_bins_with_decoders:
-                        weakest_decoder = decoders_sorted[-1]
+                        weakest_decoder = decoders_sorted[0]
                         weakest_decoder.set_fbin(fb)
                         break
                 
             for decoder in self.decoders:
+                decoder.s_meter = self.dsp.s_meter[decoder.fbin]
                 decoder.decoder.step(self.dsp.sig)
 
             waterfall = np.roll(waterfall, -1, axis =1)
@@ -203,7 +208,7 @@ class App:
             for d in self.decoders:
                 if(d is not None):
                     td = d.decoder.ticker_dict
-                    text = f"{td['wpm']:4.1f}   {td['morse']}  {td['text'].strip()}"
+                    text = f"{np.log(d.s_meter):+02.0f} {td['wpm']:4.1f}   {td['morse']}  {td['text'].strip()}"
                     if(td['rendered_text'] != text):
                         d.ticker.set_text(text) 
                         td['rendered_text'] = text
@@ -211,7 +216,7 @@ class App:
 
             return None
         
-        ani = FuncAnimation(plt.gcf(), refresh, interval = frame_ms, frames=range(100000), blit=False)
+        ani = FuncAnimation(plt.gcf(), refresh, interval = self.display_dt * 1000, frames=range(100000), blit=False)
         plt.show()
         
 app = App()
