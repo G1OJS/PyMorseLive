@@ -37,9 +37,11 @@ MORSE = {
 class TimingDecoder:
 
     def __init__(self, fbin):
+        self.set_fbin(fbin)
+
+    def set_fbin(self, fbin):
         self.keypos = 0
         self.fbin = fbin
-        self.level_hist = np.zeros(10)
         self.keymoves = {'press_t': None, 'lift_t': time.time()}
         self.morse_elements = ''
         self.last_lift_t = 0
@@ -48,7 +50,7 @@ class TimingDecoder:
         self.noise = 0
         self.decaying_min = 0
         self.decaying_max = 1
-        
+
     def update_speed(self, mark_dur):
         if(1.2/SPEED['MAX'] < mark_dur < 3*1.2/SPEED['MIN']):
             wpm_new = 1.2/mark_dur if mark_dur < 1.2/SPEED['MIN'] else 3 * 1.2/mark_dur
@@ -103,41 +105,61 @@ class TimingDecoder:
         else:
             self.morse_elements = self.morse_elements + el
                 
-    def step(self, pwr):
-       # self.decaying_min = max(self.noise, 0.95*self.decaying_min)
-        self.decaying_max = max(pwr, 0.95*self.decaying_max)
-        sig = pwr / self.decaying_max
-        self.noise = min(self.noise, pwr)
-        mark_dur, space_dur, is_idle = self.detect_transition(sig)
-        if any([mark_dur, space_dur, is_idle]):
-            el = self.classify_duration(mark_dur, space_dur, is_idle)
-            if(mark_dur):
-                self.update_speed(mark_dur)
-            self.process_element(el)
+    def step(self, pwr_all):
+        if(self.fbin>-1):
+            pwr = pwr_all[self.fbin]
+           # self.decaying_min = max(self.noise, 0.95*self.decaying_min)
+            self.decaying_max = max(pwr, 0.95*self.decaying_max)
+            sig = pwr / self.decaying_max
+            self.noise = min(self.noise, pwr)
+            mark_dur, space_dur, is_idle = self.detect_transition(sig)
+            if any([mark_dur, space_dur, is_idle]):
+                el = self.classify_duration(mark_dur, space_dur, is_idle)
+                if(mark_dur):
+                    self.update_speed(mark_dur)
+                self.process_element(el)
 
 class UI_decoder:
     def __init__(self, axs, fbin, timevals):
-        self.fbin = fbin
+        self.timevals = timevals
+        self.axs = axs
         self.decoder = TimingDecoder(fbin)
-        self.ticker = axs[1].text(-0.15, fbin, '*')
-        kld = np.zeros_like(timevals)
-        self.keyline = {'data':kld, 'line':axs[0].plot(timevals, kld, color = 'black')[0]}
+        self.ticker = None
+        self.keyline = None
+        self.set_fbin(fbin)
 
-    def remove_elements(self):
-        self.ticker.set_text(' ' * len(self.decoder.ticker_dict['rendered_text']))
-        try:
+    def set_fbin(self, fbin):
+        if(self.ticker is not None):
+            self.ticker.set_text(' ' * len(self.decoder.ticker_dict['rendered_text']))
             self.ticker.remove()
-        except:
-            pass
-        try:
+        if(self.keyline is not None):
             self.keyline['line'].remove()
-        except:
-            pass
-    
+        self.fbin = fbin
+        self.decoder.set_fbin(fbin)
+        self.ticker = self.axs[1].text(-0.15, fbin, '*')
+        kld = np.zeros_like(self.timevals)
+        self.keyline = {'data':kld, 'line':self.axs[0].plot(self.timevals, kld, color = 'black')[0]}
+
+class Audio_processor:
+    def __init__(self, audio):
+        nf = audio.params['nf']
+        self.dt = audio.params['dt']
+        self.noise = np.zeros(nf)
+        self.noise_decaying = np.zeros(nf)
+        self.sig = np.zeros(nf)
+        threading.Thread(target = self.run).start()
+
+    def run(self):
+        while True:
+            time.sleep(self.dt)
+            self.noise = np.minimum(self.noise, self.audio.pwr)
+            self.noise_decaying = np.maximum(self.noise_decaying*0.99, self.noise)
+            self.sig = self.audio.pwr / self.sig
+            self.decaying_max = np.maximum(self.decaying_max*0.99, self.sig)
+            self.sig /= self.decaying_max
 
 class App:
     def __init__(self):
-        self.decoders = {}
         self.audio = Audio_in(df = 80, dt = 0.02,  fRng = [200, 1500])
         self.siglevels = np.zeros(self.audio.params['nf'])
         self.display_nt = int(DISPLAY_DUR / DISPLAY_DT)
@@ -150,24 +172,26 @@ class App:
         axs[0].set_xticks([])
         axs[0].set_yticks([])
         axs[1].set_axis_off()
+        self.decoders = [UI_decoder(axs, fb, self.timevals) for fb in range(NDECODERS)]
         
         waterfall = np.zeros((self.audio.params['nf'], self.display_nt))
         spec_plot = axs[0].imshow(waterfall, origin = 'lower', aspect='auto', alpha = 1, 
                                       interpolation = 'none', extent=[0, display_duration, 0, self.audio.params['nf']])
         def refresh(i):
             nonlocal waterfall, spec_plot, axs
-            if(i % 10 == 0):
-                self.siglevels = np.maximum(self.siglevels * 0.9, self.audio.pwr)
-                fbins_to_cover = np.argsort(-self.siglevels)[:NDECODERS]
-                for fbin in fbins_to_cover:
-                    if fbin not in self.decoders:
-                        self.decoders[fbin] = UI_decoder(axs, fbin, self.timevals)
-                decoders_to_remove = [d for d in self.decoders.values() if d.fbin not in fbins_to_cover]
-                for d in decoders_to_remove:
-                    d.remove_elements()
-                    
-            for fbin in self.decoders:
-                self.decoders[fbin].decoder.step(self.audio.pwr[fbin])
+            if(i % 100 == 0):
+                self.siglevels = np.maximum(self.siglevels * 0.999, self.audio.pwr)
+                decoders_sorted = sorted(self.decoders, key=lambda d: self.siglevels[d.fbin])
+                fbins_to_decode = np.argsort(-self.siglevels)[:NDECODERS]
+                current_bins_with_decoders = [d.fbin for d in self.decoders]
+                for fb in fbins_to_decode:
+                    if fb not in current_bins_with_decoders:
+                        weakest_decoder = decoders_sorted[-1]
+                        weakest_decoder.set_fbin(fb)
+                        break
+                
+            for decoder in self.decoders:
+                decoder.decoder.step(self.audio.pwr)
 
             waterfall = np.roll(waterfall, -1, axis =1)
             waterfall[:, -1]  = self.audio.pwr/(1+np.max(self.audio.pwr))
@@ -175,14 +199,12 @@ class App:
             spec_plot.autoscale()
             
             if(SHOW_KEYLINES):
-                for fbin in self.decoders:
-                    d = self.decoders[fbin]                
-                    d.keyline['data'][-1] = 0.2 + 0.6 * d.decoder.keypos + fbin
+                for d in self.decoders:
+                    d.keyline['data'][-1] = 0.2 + 0.6 * d.decoder.keypos + d.decoder.fbin
                     d.keyline['data'][:-1] = d.keyline['data'][1:]
                     d.keyline['line'].set_ydata(d.keyline['data'])
 
-            for fbin in self.decoders:
-                d = self.decoders[fbin]
+            for d in self.decoders:
                 if(d is not None):
                     td = d.decoder.ticker_dict
                     text = f"{td['wpm']:4.1f}   {td['morse']}  {td['text'].strip()}"
