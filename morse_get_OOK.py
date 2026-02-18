@@ -210,11 +210,12 @@ class App:
                 for d in self.decoders:
                     d.keyline['line'].set_ydata(d.keyline['data'])
 
+            show_speed_info = False
             for d in self.decoders:
                 if(d is not None):
                     td = d.decoder.info_dict
                     s = self.s_meter[d.fbin]
-                    speed_info = ' '.join([f"{k}{v:5.3f}" for k,v in d.decoder.timeactual.items()])
+                    speed_info = ' '.join([f"{k}{v:5.3f}" for k,v in d.decoder.timeactual.items()]) if show_speed_info else ''
                     text = f"{s:+03.0f}dB {td['wpm']:3.0f}wpm  {speed_info} {td['morse']}  {td['text'].strip()}"
                     if(td['rendered_text'] != text):
                         d.ticker.set_text(text) 
