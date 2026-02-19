@@ -8,11 +8,11 @@ import argparse
 
 SHOW_KEYLINES = True
 SPEED = {'MAX':45, 'MIN':12, 'ALPHA':0.05}
-TICKER_FIELD_LENGTHS = {'MORSE':40, 'TEXT':10}
+TICKER_FIELD_LENGTHS = {'MORSE':40, 'TEXT':30}
 TIMESPEC = {'DOT_SHORT':0.65, 'DOT_LONG':2, 'CHARSEP_SHORT':2, 'CHARSEP_WORDSEP':6, 'TIMEOUT':7.5}
-AUDIO_REFRESH_DT = 0.02
-DISPLAY_REFRESH_DT = -1
-DISPLAY_DUR = 3
+AUDIO_REFRESH_DT = 0.01
+DISPLAY_REFRESH_DIVISOR = 4
+DISPLAY_DUR = 1
 MORSE = {
 ".-": "A",    "-...": "B",  "-.-.": "C",  "-..": "D",
 ".": "E",     "..-.": "F",  "--.": "G",   "....": "H",
@@ -200,7 +200,7 @@ class App:
         self.n_decoders = n_decoders
         print(input_device_keywords, freq_range, df, n_decoders, show_processing)
         self.audio = Audio_in(input_device_keywords = input_device_keywords, df = df, dt = AUDIO_REFRESH_DT,  fRng = freq_range)
-        self.display_refresh_dt = DISPLAY_REFRESH_DT if DISPLAY_REFRESH_DT > 0 else self.audio.params['dt']
+        self.display_refresh_dt = DISPLAY_REFRESH_DIVISOR * self.audio.params['dt']
         self.display_nt = int(DISPLAY_DUR / self.audio.params['dt'])
         self.waterfall = np.zeros((self.audio.params['nf'], self.display_nt))
         self.decoders = []
@@ -225,7 +225,7 @@ class App:
             time.sleep(dt)
             pwr = self.audio.calc_spectrum()
             noise = 0.9 * noise + 0.1 * np.minimum(noise*1.05, pwr)
-            self.snr_lin = pwr / noise
+            self.snr_lin = pwr / noise + 0.01
             sig = self.squelch(self.snr_lin, 100, 10)
             sig_max = np.maximum(sig_max * 0.85, sig)
             sig_norm = sig / sig_max
@@ -238,7 +238,7 @@ class App:
             self.waterfall[:, -1]  = 10*np.log10(self.snr_lin)
 
     def animate(self):
-        fig, axs = plt.subplots(1,2, figsize = (14,3))
+        fig, axs = plt.subplots(1,2, width_ratios=[1, 2], figsize = (10,4))
         fig.suptitle("PyMorse by G1OJS", horizontalalignment = 'left', x = 0.1)
         axs[1].set_ylim(0, self.audio.params['nf'])
         axs[0].set_xticks([])
