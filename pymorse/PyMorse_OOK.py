@@ -210,7 +210,7 @@ class UI_decoder:
         kld = np.zeros_like(self.timevals)
         self.keyline = {'data':kld, 'line':self.axs[0].plot(self.timevals, kld, color = 'white', drawstyle='steps-post')[0]}
 
-def run(input_device_keywords, freq_range, df, hop_ms, n_decoders, show_processing):
+def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decoders, show_processing):
 
         spectrum = Spectrum(input_device_keywords, df,  freq_range)
         nf = spectrum.nf
@@ -233,8 +233,9 @@ def run(input_device_keywords, freq_range, df, hop_ms, n_decoders, show_processi
                                   vmin = 5,  vmax=25, interpolation = 'bilinear', extent=[0, DISPLAY_DUR, 0, nf])
 
         last_hop = time.time()
+        data_counter = 0
         def processing_loop(hop_ms):
-            nonlocal waterfall, last_hop
+            nonlocal waterfall, last_hop, data_counter
             while True:
                 delay = hop_ms/1000 - (time.time() - last_hop)
                 time.sleep(delay if delay > 0 else 0)
@@ -249,12 +250,17 @@ def run(input_device_keywords, freq_range, df, hop_ms, n_decoders, show_processi
                 inst_dB = 10*np.log10(spectrum.snr_lin)
                 waterfall = np.roll(waterfall, -1, axis = 1)
                 waterfall[:, -1]  = inst_dB
-        
+                data_counter += 1
+    
         def display_loop(display_idx):
-            nonlocal display_nt, spec_plot, s_meter, waterfall, decoders, show_speed_info
+            nonlocal data_counter, display_nt, display_decimate, spec_plot, s_meter, waterfall, decoders, show_speed_info
 
+            while data_counter < display_decimate :
+                time.sleep(0)
+            data_counter = 0
+ 
             spec_plot.set_data(waterfall)            
-            s_meter = np.maximum(s_meter * 0.99, waterfall[:, -1])
+            s_meter = np.maximum(s_meter * 0.95, waterfall[:, -1])
             spec_plot.set_array(waterfall)
             if(SHOW_KEYLINES):
                 for d in decoders:
@@ -283,12 +289,9 @@ def run(input_device_keywords, freq_range, df, hop_ms, n_decoders, show_processi
             
             return spec_plot, *[d.keyline['line'] for d in decoders], *[d.ticker for d in decoders],
    
-
         threading.Thread(target = processing_loop, args = (hop_ms,) ).start()
-        ani = FuncAnimation(plt.gcf(), display_loop, interval = 10, frames = 10000,  blit=True)
+        ani = FuncAnimation(plt.gcf(), display_loop, interval = 0, frames = 100000,  blit=True)
         plt.show()
-
-
 
 def cli():
     parser = argparse.ArgumentParser(prog='PyMorseRx', description = 'Command Line Morse decoder')
@@ -308,8 +311,9 @@ def cli():
    # show_processing = args.show_processing if args.show_processing is not None else False
     show_processing = False
 
-    hop_ms = 10
-    run(input_device_keywords, freq_range, df, hop_ms, n_decoders, show_processing)
+    hop_ms = 5
+    display_decimate = 5
+    run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decoders, show_processing)
 
 
 cli()
