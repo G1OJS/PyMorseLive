@@ -1,6 +1,5 @@
 import numpy as np
 import time
-import threading
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import pyaudio
@@ -10,8 +9,8 @@ SHOW_KEYLINES = True
 SPEED = {'MAX':45, 'MIN':12, 'ALPHA':0.05}
 TICKER_FIELD_LENGTHS = {'MORSE':40, 'TEXT':30}
 TIMESPEC = {'DOT_SHORT':0.65, 'DOT_LONG':2, 'CHARSEP_SHORT':2, 'CHARSEP_WORDSEP':6, 'TIMEOUT':7.5}
-DISPLAY_REFRESH_DIVISOR = 4
 AUDIO_REFRESH_DT = 0.01
+FRAME_RATE = 35
 
 DISPLAY_DUR = 1
 MORSE = {
@@ -196,96 +195,93 @@ class UI_decoder:
         kld = np.zeros_like(self.timevals)
         self.keyline = {'data':kld, 'line':self.axs[0].plot(self.timevals, kld, color = 'white', drawstyle='steps-post')[0]}
 
-class App:
-    def __init__(self, input_device_keywords, freq_range, df, n_decoders, show_processing):
-        self.n_decoders = n_decoders
-        print(input_device_keywords, freq_range, df, n_decoders, show_processing)
-        self.audio = Audio_in(input_device_keywords = input_device_keywords, df = df, dt = AUDIO_REFRESH_DT,  fRng = freq_range)
-        self.display_refresh_dt = DISPLAY_REFRESH_DIVISOR * self.audio.params['dt']
-        self.display_nt = int(DISPLAY_DUR / self.audio.params['dt'])
-        self.waterfall = np.zeros((self.audio.params['nf'], self.display_nt))
-        self.decoders = []
-        self.snr_lin = np.zeros(self.audio.params['nf'])
-        self.s_meter = np.zeros(self.audio.params['nf'])
-        self.timevals = np.linspace(0, DISPLAY_DUR, self.display_nt)
-        threading.Thread(target = self.dsp).start()
-        self.animate()
 
-    def squelch(self, x, a, b):
+def squelch(x, a, b):
         f = np.where(x>a, x, a + b*(x-a))
         return np.clip(f, 0, None)
-    
-    def dsp(self):
-        nf = self.audio.params['nf']
-        dt = self.audio.params['dt']
+        
+def run(input_device_keywords, freq_range, df, n_decoders, show_processing):
+        audio = Audio_in(input_device_keywords = input_device_keywords, df = df, dt = 0.005,  fRng = freq_range)
+        fig, axs = plt.subplots(1,2, width_ratios=[1, 2], figsize = (10,4))
+        fig.suptitle("PyMorse by G1OJS", horizontalalignment = 'left', x = 0.1)
+        axs[1].set_ylim(0, audio.params['nf'])
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
+        axs[1].set_axis_off()
 
-        time.sleep(0.1)
-        sig_max = self.audio.calc_spectrum()
+        nf = audio.params['nf']
+        dt = audio.params['dt']
+        
+        display_nt = int(DISPLAY_DUR / dt)
+        waterfall = np.zeros((nf, display_nt))
+        timevals = np.linspace(0, DISPLAY_DUR, display_nt)
+        decoders = [UI_decoder(axs, fb, timevals) for fb in range(n_decoders)]
+        
+        spec_plot = axs[0].imshow(waterfall, origin = 'lower', aspect='auto',
+                                alpha = 1, vmin = 5,  vmax=25, interpolation = 'bilinear',
+                                extent=[0, DISPLAY_DUR, 0, nf])
+        snr_lin = np.zeros(nf)
+        s_meter = np.zeros(nf)
+        sig_max = audio.calc_spectrum()
         noise = sig_max
-        while True:
-            time.sleep(dt)
-            pwr = self.audio.calc_spectrum()
+        t = time.time()
+        n = int((1/FRAME_RATE) / dt)
+        print(n)
+        def refresh(i):
+            nonlocal spec_plot, axs, t, snr_lin, n, s_meter, sig_max, noise, waterfall, decoders
+
+            pwr = audio.calc_spectrum()
             noise = 0.9 * noise + 0.1 * np.minimum(noise*1.05, pwr)
-            self.snr_lin = pwr / noise + 0.01
-            sig = self.squelch(self.snr_lin, 100, 10)
+            snr_lin = pwr / noise + 0.01
+            sig = squelch(snr_lin, 100, 10)
             sig_max = np.maximum(sig_max * 0.85, sig)
             sig_norm = sig / sig_max
-            for d in self.decoders:
+            for d in decoders:
                 s = sig_norm[d.fbin]
                 d.decoder.step(s)
                 d.keyline['data'][-1] = 0.2 + 0.6 * d.decoder.keypos + d.fbin
                 d.keyline['data'][:-1] = d.keyline['data'][1:]
-            self.waterfall = np.roll(self.waterfall, -1, axis =1)
-            self.waterfall[:, -1]  = 10*np.log10(self.snr_lin)
+            waterfall = np.roll(waterfall, -1, axis =1)
+            waterfall[:, -1]  = 10*np.log10(snr_lin)
 
-    def animate(self):
-        fig, axs = plt.subplots(1,2, width_ratios=[1, 2], figsize = (10,4))
-        fig.suptitle("PyMorse by G1OJS", horizontalalignment = 'left', x = 0.1)
-        axs[1].set_ylim(0, self.audio.params['nf'])
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
-        axs[1].set_axis_off()
-        self.decoders = [UI_decoder(axs, fb, self.timevals) for fb in range(self.n_decoders)]
-        
-        spec_plot = axs[0].imshow(self.waterfall, origin = 'lower', aspect='auto',
-                                alpha = 1, vmin = 5,  vmax=25, interpolation = 'bilinear',
-                                extent=[0, DISPLAY_DUR, 0, self.audio.params['nf']])
-        def refresh(i):
-            nonlocal spec_plot, axs
-            snr_db = 10 * np.log10(self.snr_lin)
-            self.s_meter = np.maximum(self.s_meter * 0.999, snr_db)
+            if((i % n) == 0):
+                snr_db = 10 * np.log10(snr_lin)
+                s_meter = np.maximum(s_meter * 0.999, snr_db)
+                
+                spec_plot.set_array(waterfall)
+                if(SHOW_KEYLINES):
+                    for d in decoders:
+                        d.keyline['line'].set_ydata(d.keyline['data'])            
 
-            spec_plot.set_array(self.waterfall)
-            
-            if(SHOW_KEYLINES):
-                for d in self.decoders:
-                    d.keyline['line'].set_ydata(d.keyline['data'])            
-
-            show_speed_info = False
-            for d in self.decoders:
-                if(d is not None):
-                    td = d.decoder.info_dict
-                    s = self.s_meter[d.fbin]
-                    speed_info = ' '.join([f"{k}{v:5.3f}" for k,v in d.decoder.timeactual.items()]) if show_speed_info else ''
-                    text = f"{s:+03.0f}dB {td['wpm']:3.0f}wpm  {speed_info} {td['morse']}  {td['text'].strip()}"
-                    if(td['rendered_text'] != text):
-                        d.ticker.set_text(text) 
-                        td['rendered_text'] = text
+                show_speed_info = False
+                for d in decoders:
+                    if(d is not None):
+                        td = d.decoder.info_dict
+                        s = s_meter[d.fbin]
+                        speed_info = ' '.join([f"{k}{v:5.3f}" for k,v in d.decoder.timeactual.items()]) if show_speed_info else ''
+                        text = f"{s:+03.0f}dB {td['wpm']:3.0f}wpm  {speed_info} {td['morse']}  {td['text'].strip()}"
+                        if(td['rendered_text'] != text):
+                            d.ticker.set_text(text) 
+                            td['rendered_text'] = text
                             
-            if(i % 10 == 0):
-                fbins_to_decode = np.argsort(-self.s_meter)[:self.n_decoders]
-                decoders_sorted = sorted(self.decoders, key=lambda d: self.s_meter[d.fbin])
-                current_bins_with_decoders = [d.fbin for d in self.decoders]
+            if(i % 10*n == 0):
+                fbins_to_decode = np.argsort(-s_meter)[:n_decoders]
+                decoders_sorted = sorted(decoders, key=lambda d: s_meter[d.fbin])
+                current_bins_with_decoders = [d.fbin for d in decoders]
                 for fb in fbins_to_decode:
                     if fb not in current_bins_with_decoders:
                         weakest_decoder = decoders_sorted[0]
-                        if(self.s_meter[fb] > 2 + self.s_meter[weakest_decoder.fbin]):
+                        if(s_meter[fb] > 2 + s_meter[weakest_decoder.fbin]):
                             weakest_decoder.set_fbin(fb)
                             break
-
-            return spec_plot, *[d.keyline['line'] for d in self.decoders], *[d.ticker for d in self.decoders],
+            
+            if((i % 1000) == 0):
+                print((time.time() - t)/1000)
+                t = time.time()
+            
+            return spec_plot, *[d.keyline['line'] for d in decoders], *[d.ticker for d in decoders],
         
-        ani = FuncAnimation(plt.gcf(), refresh, interval = self.display_refresh_dt * 1000, frames=range(100000), blit=True)
+        ani = FuncAnimation(plt.gcf(), refresh, interval = 1000*dt, frames=range(display_nt), blit=True)
         plt.show()
 
 
@@ -308,7 +304,7 @@ def cli():
    # show_processing = args.show_processing if args.show_processing is not None else False
     show_processing = False
     
-    app = App(input_device_keywords, freq_range, df, n_decoders, show_processing)
+    run(input_device_keywords, freq_range, df, n_decoders, show_processing)
 
 
 cli()
