@@ -193,21 +193,14 @@ class UI_decoder:
         self.timevals = timevals
         self.ax = ax
         self.decoder = TimingDecoder(fbin)
-        self.ticker = None
-        self.keyline = None
+        self.keydata = np.zeros_like(self.timevals)
+        self.keyline = self.ax.plot(self.timevals, self.keydata, color = 'white', drawstyle='steps-post')[0]
         self.set_fbin(fbin)
 
     def set_fbin(self, fbin):
         self.fbin = fbin
         self.decoder.set_fbin(fbin)
-        kld = np.zeros_like(self.timevals)
-        self.keyline = {'data':kld, 'line':self.ax.plot(self.timevals, kld, color = 'white', drawstyle='steps-post')[0]}
-
-    def remove(self, fbin):
-        self.fbin = None
-        if(self.keyline is not None):
-            self.keyline['line'].remove()
-        self.decoder = None
+        
 
 def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decoders, show_processing):
 
@@ -259,8 +252,8 @@ def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decod
                 for d in decoders:
                     fbin = d.fbin
                     d.decoder.step(sig_norm[fbin])
-                    d.keyline['data'] = np.roll(d.keyline['data'], -1)
-                    d.keyline['data'][-1] = 0.2 + 0.6 * d.decoder.keypos + fbin
+                    d.keydata = np.roll(d.keydata, -1)
+                    d.keydata[-1] = 0.2 + 0.6 * d.decoder.keypos + fbin
                 inst_dB = 10*np.log10(spectrum.snr_lin)
                 waterfall = np.roll(waterfall, -1, axis = 1)
                 waterfall[:, -1]  = inst_dB
@@ -278,7 +271,7 @@ def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decod
             spec_plot.set_array(waterfall)
             if(SHOW_KEYLINES):
                 for d in decoders:
-                    d.keyline['line'].set_ydata(d.keyline['data'])
+                    d.keyline.set_ydata(d.keydata)
 
             if((display_idx % 20) == 0):
                 current_bins_with_decoders = [d.fbin for d in decoders]
@@ -291,7 +284,11 @@ def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decod
                             weakest_decoder.set_fbin(fb)
                             break
             
-            if((display_idx % 10) == 0):
+            if((display_idx % 5) == 0):
+                for fbin in range(nf):
+                    if(time.time()-last_updated[fbin] > 5):
+                        tickers[fbin].set_color('blue')
+                
                 for d in decoders:
                     td = d.decoder.info_dict
                     fbin = d.fbin
@@ -301,8 +298,10 @@ def run(input_device_keywords, freq_range, df, hop_ms, display_decimate, n_decod
                     fbin = d.fbin
                     if(tickers[fbin].get_text() != new_text):
                         tickers[fbin].set_text(new_text)
+                        last_updated[fbin] = time.time()
+                        tickers[fbin].set_color('green')
 
-            return spec_plot, *[d.keyline['line'] for d in decoders], *[ticker for ticker in tickers],
+            return spec_plot, *[d.keyline for d in decoders], *[ticker for ticker in tickers],
    
         threading.Thread(target = processing_loop, args = (hop_ms,) ).start()
         ani = FuncAnimation(plt.gcf(), display_loop, interval = 0, frames = 100000,  blit = True)
