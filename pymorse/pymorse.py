@@ -5,6 +5,7 @@ from matplotlib.animation import FuncAnimation
 import threading
 import pyaudio
 import argparse
+#from pymorse.pskr_upload import PSKR_upload
 
 WF_RECENT_QUALITY_SQUELCH_LENGTH = 50  
 RECENT_QUALITY_SQUELCH_THRESH = 6
@@ -25,8 +26,6 @@ MORSE = {'.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F',
 '.--..-': '1', '.---..': '1', '....--': '2', '..-..-': '2', '.....-': '_BK_', '...-..': '3', '......': '6', '..-...': '7', '-.....': '_BK_', '-..-..': '8', 
 '--....': '8', '..---.': '9', '-..--.': '9', '--..-.': '9', '---...': '9', '....-.': '_AR_', '-....-': '_AR_', '-.-...': '_KN_', '.-....': '_AR_', '....-..': '?', 
 '..-....': '_UR_', '......-': '_SK_', '...-...': '_SK_', '.....-.': '_UR_', '...--.': '_KN_', '-...-.': '_KN_', '...-.--.-': '_CQ_', '-....--.-': '_CQ_', '-.-...-.-': '_CQ_', '-.-.-...-': '_CQ_'}
-
-
 
 def debug(text):
     with open('PyMorse.txt', 'a') as f:
@@ -151,7 +150,6 @@ class TimingDecoder:
         if dur > ts['charsep_wordsep']:
             self.key_last_moved = t
             self.complete_word()
-
 
 class UI_channel:
     def __init__(self, axs, fbin, ticker, last_updated, unknown_chars):
@@ -279,7 +277,6 @@ class Channel_manager:
             if not channels[best_fbin].active:
                 channels[best_fbin].start()
                 channels[weakest_decoder[0]].pause()
-
 
 def define_figure(nf):
     fig, axs = plt.subplots(1,2, width_ratios=[1, 1], figsize = (12,3))
